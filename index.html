@@ -768,6 +768,28 @@
     note2.textContent = "※ 자세한 기재 금지 항목은 학교급·시도교육청·학년도별 최신 나이스 기재요령을 함께 확인하세요.";
     body.appendChild(note2);
 
+    var currentLimit = limit;
+    var limitRow = document.createElement("div");
+    limitRow.className = "limit-editor helper-limit";
+    var limitLabel = document.createElement("span");
+    limitLabel.textContent = "이 프롬프트의 글자수 제한";
+    var limitInput = document.createElement("input");
+    limitInput.type = "number";
+    limitInput.min = "0";
+    limitInput.value = limit || 0;
+    limitInput.addEventListener("input", function(){
+      var v = parseInt(limitInput.value, 10);
+      currentLimit = isNaN(v) || v < 0 ? 0 : v;
+    });
+    limitRow.appendChild(limitLabel);
+    limitRow.appendChild(limitInput);
+    body.appendChild(limitRow);
+
+    var limitNote = document.createElement("p");
+    limitNote.className = "helper-note faint";
+    limitNote.textContent = "수행평가 자료 등 상황에 따라 실제 제한 글자수와 다르게 프롬프트를 만들고 싶으면 위 값을 바꾸세요 (상단 섹션 글자수 제한과는 별개로 이 프롬프트에만 적용됩니다).";
+    body.appendChild(limitNote);
+
     var listWrap = document.createElement("div");
     listWrap.className = "material-list";
 
@@ -854,7 +876,7 @@
 
     genBtn.addEventListener("click", function(){
       var label = typeof labelSource === "function" ? labelSource() : labelSource;
-      var text = buildPromptText(label, limit, materials);
+      var text = buildPromptText(label, currentLimit, materials);
       pArea.value = text;
       promptField.style.display = "flex";
       if(navigator.clipboard && navigator.clipboard.writeText){
