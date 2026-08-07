@@ -385,6 +385,11 @@
     border-radius:6px; padding:4px 6px;
     font-family:var(--font-mono); font-size:12px; color:var(--ink);
   }
+  .ref-check-row{
+    display:flex; align-items:center; gap:8px;
+    font-size:12.5px; color:var(--ink); font-weight:600;
+    cursor:pointer;
+  }
 
   .editor-card{
     border:1px solid var(--border);
@@ -801,7 +806,7 @@
     "부정적이거나 단정적인 평가 표현은 피하고 객관적이고 긍정적인 어조를 유지한다"
   ];
 
-  function buildPromptText(sectionLabel, limit, materials){
+  function buildPromptText(sectionLabel, limit, materials, refSubjects){
     var lines = [];
     lines.push("아래는 한 학생에 대한 관찰 자료와 수행평가 자료야. 이 내용을 바탕으로 학교생활기록부 '" + sectionLabel + "' 항목에 들어갈 문장으로 다듬어줘.");
     lines.push("");
@@ -819,6 +824,13 @@
         lines.push((idx + 1) + ". " + tag + m.text.trim());
       });
     }
+    if(refSubjects && refSubjects.length){
+      lines.push("");
+      lines.push("[참고 자료 - 이미 등록된 교과 세부능력 및 특기사항] (그대로 옮기지 말고, 학생의 특성을 파악하는 맥락 자료로만 활용해줘)");
+      refSubjects.forEach(function(rs, idx){
+        lines.push((idx + 1) + ". [" + (rs.name && rs.name.trim() ? rs.name.trim() : "과목명 미입력") + "] " + rs.text.trim());
+      });
+    }
     lines.push("");
     lines.push("위 규칙을 지켜 다듬어진 문장만 결과로 알려줘.");
     return lines.join("\n");
@@ -831,7 +843,7 @@
     { label:"수행평가", buttonText:"+ 수행평가 자료 추가", placeholder:"예: [단원명/과제명] 수행평가 과제 내용, 채점기준(루브릭), 학생이 제출한 결과물의 특징이나 교사 피드백..." }
   ];
 
-  function buildAiHelper(key, labelSource, limit, materials, rerender, onApply){
+  function buildAiHelper(key, labelSource, limit, materials, rerender, onApply, refSubjects){
     var wrap = document.createElement("div");
     wrap.className = "bank";
 
@@ -875,6 +887,29 @@
     limitNote.className = "helper-note faint";
     limitNote.textContent = "수행평가 자료 등 상황에 따라 실제 제한 글자수와 다르게 프롬프트를 만들고 싶으면 위 값을 바꾸세요 (상단 섹션 글자수 제한과는 별개로 이 프롬프트에만 적용됩니다).";
     body.appendChild(limitNote);
+
+    var hasRefSubjects = !!(refSubjects && refSubjects.length);
+    var refCheckbox = null;
+    if(hasRefSubjects){
+      var refRow = document.createElement("label");
+      refRow.className = "ref-check-row";
+      refCheckbox = document.createElement("input");
+      refCheckbox.type = "checkbox";
+      refCheckbox.checked = true;
+      var refText = document.createElement("span");
+      refText.textContent = "이미 등록된 교과 세부능력 및 특기사항(" + refSubjects.length + "개 과목) 참고하기";
+      refRow.appendChild(refCheckbox);
+      refRow.appendChild(refText);
+      body.appendChild(refRow);
+
+      var refNote = document.createElement("p");
+      refNote.className = "helper-note faint";
+      refNote.textContent = "체크하면 이미 입력해 둔 교과세특 내용을 참고 자료로 프롬프트에 함께 담아, 학생의 다른 특성과 일관되게 문장을 만들 수 있어요 (세특 내용을 그대로 옮기지 않도록 안내가 포함됩니다).";
+      body.appendChild(refNote);
+    }
+    function getActiveRefSubjects(){
+      return (hasRefSubjects && refCheckbox.checked) ? refSubjects : null;
+    }
 
     var listWrap = document.createElement("div");
     listWrap.className = "material-list";
@@ -992,7 +1027,7 @@
 
     genBtn.addEventListener("click", function(){
       var label = typeof labelSource === "function" ? labelSource() : labelSource;
-      var text = buildPromptText(label, currentLimit, materials);
+      var text = buildPromptText(label, currentLimit, materials, getActiveRefSubjects());
       pArea.value = text;
       promptField.style.display = "flex";
       copyPromptText(text);
@@ -1002,7 +1037,7 @@
 
     autoBtn.addEventListener("click", function(){
       var label = typeof labelSource === "function" ? labelSource() : labelSource;
-      var text = buildPromptText(label, currentLimit, materials);
+      var text = buildPromptText(label, currentLimit, materials, getActiveRefSubjects());
       autoBtn.disabled = true;
       var origText = autoBtn.textContent;
       autoBtn.textContent = "생성 중...";
@@ -2178,13 +2213,16 @@
 
     frag.appendChild(buildBank(sectionKey, function(phrase){ insertAtCursor(ta, phrase); }));
 
+    var refSubjects = (s.sections.subjects || []).filter(function(su){ return su.text && su.text.trim(); }).map(function(su){ return { name: su.name, text: su.text }; });
+
     frag.appendChild(buildAiHelper(
       sectionKey,
       SECTION_LABEL[sectionKey],
       limits[sectionKey],
       s.sections.materials[sectionKey],
       renderTabBody,
-      function(text){ ta.value = text; ta.dispatchEvent(new Event("input")); }
+      function(text){ ta.value = text; ta.dispatchEvent(new Event("input")); },
+      refSubjects
     ));
 
     frag.appendChild(buildCheckPanel(sectionKey, function(){ return ta.value; }, limits[sectionKey], s.name, SECTION_LABEL[sectionKey]));
