@@ -159,12 +159,18 @@
     gap:8px;
     margin-top:-8px;
   }
-  .api-key-row{ display:flex; gap:8px; flex-wrap:wrap; }
+  .api-key-row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
   .api-key-row input{
     flex:1; min-width:220px;
     border:1px solid var(--border); background:var(--paper);
     border-radius:8px; padding:8px 10px;
     font-family:var(--font-mono); font-size:13px; color:var(--ink);
+  }
+  .api-provider-label{ font-size:12.5px; font-weight:600; color:var(--ink-soft); }
+  .api-key-row select{
+    border:1px solid var(--border); background:var(--paper);
+    border-radius:8px; padding:7px 10px;
+    font-size:12.5px; color:var(--ink);
   }
   .privacy-pill{
     display:inline-flex;
@@ -589,8 +595,15 @@
   </header>
 
   <div class="api-key-panel" id="apiKeyPanel" style="display:none;">
-    <p class="helper-note"><b>AI 자동 변환 설정</b> — Anthropic API 키를 등록하면 "자동 변환" 버튼으로 자료를 바로 문장으로 바꿀 수 있어요. 키는 이 브라우저(localStorage)에만 저장되고, 요청은 이 사이트 서버를 거치지 않고 브라우저에서 Anthropic으로 직접 전송됩니다.</p>
-    <p class="helper-note faint">API 키가 없다면 <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>에서 발급받을 수 있어요. 사용한 만큼 본인의 Anthropic 계정에 비용이 청구됩니다. 키를 등록하지 않아도 기존의 "프롬프트 생성 & 복사" 방식은 그대로 사용할 수 있어요.</p>
+    <p class="helper-note"><b>AI 자동 변환 설정</b> — API 키를 등록하면 "자동 변환" 버튼으로 자료를 바로 문장으로 바꿀 수 있어요. 키는 이 브라우저(localStorage)에만 저장되고, 요청은 이 사이트 서버를 거치지 않고 브라우저에서 선택한 AI 제공자에게 직접 전송됩니다.</p>
+    <div class="api-key-row">
+      <span class="api-provider-label">AI 제공자</span>
+      <select id="apiProviderSelect">
+        <option value="anthropic">Anthropic (Claude)</option>
+        <option value="gemini">Google (Gemini)</option>
+      </select>
+    </div>
+    <p class="helper-note faint" id="apiKeyHelpNote"></p>
     <div class="api-key-row">
       <input type="password" id="apiKeyInput" placeholder="sk-ant-...">
       <button class="btn btn-accent" id="btnApiKeySave">저장</button>
@@ -671,8 +684,24 @@
   var STORAGE_KEY = "saengbu_notebook_v1";
   var LIMIT_KEY = "saengbu_notebook_limits_v1";
   var API_KEY_STORAGE = "saengbu_notebook_api_key_v1";
+  var API_PROVIDER_STORAGE = "saengbu_notebook_api_provider_v1";
 
   var DEFAULT_LIMITS = { jayul:500, jinro:500, subject:500, haengbal:500 };
+
+  var AI_PROVIDERS = {
+    anthropic: {
+      label: "Anthropic (Claude)",
+      keyPlaceholder: "sk-ant-...",
+      keyLink: { href: "https://console.anthropic.com/settings/keys", text: "console.anthropic.com" },
+      note: "사용한 만큼 본인의 Anthropic 계정에 비용이 청구됩니다."
+    },
+    gemini: {
+      label: "Google (Gemini)",
+      keyPlaceholder: "AIza...",
+      keyLink: { href: "https://aistudio.google.com/apikey", text: "aistudio.google.com" },
+      note: "Google AI Studio에서 무료 API 키를 발급받을 수 있어요 (사용량에 따라 무료 한도가 있습니다)."
+    }
+  };
 
   function getApiKey(){
     try { return localStorage.getItem(API_KEY_STORAGE) || ""; }
@@ -684,13 +713,18 @@
       else localStorage.removeItem(API_KEY_STORAGE);
     } catch(e){}
   }
+  function getApiProvider(){
+    try {
+      var v = localStorage.getItem(API_PROVIDER_STORAGE);
+      return (v === "gemini") ? "gemini" : "anthropic";
+    } catch(e){ return "anthropic"; }
+  }
+  function setApiProvider(v){
+    try { localStorage.setItem(API_PROVIDER_STORAGE, v === "gemini" ? "gemini" : "anthropic"); }
+    catch(e){}
+  }
 
-  function callClaude(promptText){
-    var key = getApiKey();
-    if(!key){
-      toast("먼저 상단의 \"AI 자동 변환 설정\"에서 API 키를 등록해 주세요");
-      return Promise.resolve(null);
-    }
+  function callAnthropic(key, promptText){
     return fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -718,7 +752,45 @@
         }
         return text;
       });
-    }).catch(function(err){
+    });
+  }
+
+  function callGemini(key, promptText){
+    var url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + encodeURIComponent(key);
+    return fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: promptText }] }]
+      })
+    }).then(function(res){
+      return res.json().then(function(data){
+        if(!res.ok){
+          var msg = (data && data.error && data.error.message) ? data.error.message : ("요청 실패 (" + res.status + ")");
+          toast("AI 호출 실패: " + msg);
+          return null;
+        }
+        var cand = (data.candidates || [])[0];
+        var parts = (cand && cand.content && cand.content.parts) || [];
+        var text = parts.map(function(p){ return p.text || ""; }).join("\n").trim();
+        if(!text){
+          toast("AI 응답에서 문장을 찾을 수 없습니다");
+          return null;
+        }
+        return text;
+      });
+    });
+  }
+
+  function callAi(promptText){
+    var key = getApiKey();
+    if(!key){
+      toast("먼저 상단의 \"AI 자동 변환 설정\"에서 API 키를 등록해 주세요");
+      return Promise.resolve(null);
+    }
+    var provider = getApiProvider();
+    var fn = provider === "gemini" ? callGemini : callAnthropic;
+    return fn(key, promptText).catch(function(err){
       toast("AI 호출 중 오류가 발생했습니다 (네트워크 확인)");
       return null;
     });
@@ -996,7 +1068,7 @@
 
     var autoNote = document.createElement("p");
     autoNote.className = "helper-note faint";
-    autoNote.textContent = "\"자동 변환\"은 상단에 등록한 API 키로 Anthropic에 바로 요청을 보내 문장을 만들고 본문에 자동 적용해요. API 키가 없다면 위의 \"변환 프롬프트 생성 & 복사\"로 수동 진행하세요.";
+    autoNote.textContent = "\"자동 변환\"은 상단에 등록한 AI 제공자(Anthropic 또는 Gemini)로 바로 요청을 보내 문장을 만들고 본문에 자동 적용해요. API 키가 없다면 위의 \"변환 프롬프트 생성 & 복사\"로 수동 진행하세요.";
     body.appendChild(autoNote);
 
     var promptField = document.createElement("div");
@@ -1041,7 +1113,7 @@
       autoBtn.disabled = true;
       var origText = autoBtn.textContent;
       autoBtn.textContent = "생성 중...";
-      callClaude(text).then(function(result){
+      callAi(text).then(function(result){
         autoBtn.disabled = false;
         autoBtn.textContent = origText;
         if(result){
@@ -2003,31 +2075,44 @@
   var apiKeyPanel = document.getElementById("apiKeyPanel");
   var apiKeyInput = document.getElementById("apiKeyInput");
   var apiKeyStatus = document.getElementById("apiKeyStatus");
+  var apiKeyHelpNote = document.getElementById("apiKeyHelpNote");
+  var apiProviderSelect = document.getElementById("apiProviderSelect");
 
-  function refreshApiKeyStatus(){
-    apiKeyStatus.textContent = getApiKey() ? "현재 API 키가 등록되어 있습니다." : "등록된 API 키가 없습니다.";
+  function refreshApiKeyPanel(){
+    var provider = apiProviderSelect.value;
+    var info = AI_PROVIDERS[provider];
+    apiKeyInput.placeholder = info.keyPlaceholder;
+    apiKeyHelpNote.innerHTML = "API 키가 없다면 <a href=\"" + info.keyLink.href + "\" target=\"_blank\" rel=\"noopener\">" + info.keyLink.text + "</a>에서 발급받을 수 있어요. " + info.note + " 키를 등록하지 않아도 기존의 \"프롬프트 생성 & 복사\" 방식은 그대로 사용할 수 있어요.";
+    apiKeyStatus.textContent = getApiKey() ? (info.label + " 키가 현재 등록되어 있습니다.") : "등록된 API 키가 없습니다.";
   }
-  refreshApiKeyStatus();
+
+  apiProviderSelect.value = getApiProvider();
+  refreshApiKeyPanel();
 
   document.getElementById("btnApiKey").addEventListener("click", function(){
     var open = apiKeyPanel.style.display !== "none";
     apiKeyPanel.style.display = open ? "none" : "flex";
     if(!open){
+      apiProviderSelect.value = getApiProvider();
       apiKeyInput.value = getApiKey();
-      refreshApiKeyStatus();
+      refreshApiKeyPanel();
     }
+  });
+  apiProviderSelect.addEventListener("change", function(){
+    refreshApiKeyPanel();
   });
   document.getElementById("btnApiKeySave").addEventListener("click", function(){
     var v = apiKeyInput.value.trim();
     if(!v){ toast("API 키를 입력해 주세요"); return; }
+    setApiProvider(apiProviderSelect.value);
     setApiKey(v);
-    refreshApiKeyStatus();
-    toast("API 키를 저장했습니다");
+    refreshApiKeyPanel();
+    toast(AI_PROVIDERS[apiProviderSelect.value].label + " API 키를 저장했습니다");
   });
   document.getElementById("btnApiKeyClear").addEventListener("click", function(){
     setApiKey("");
     apiKeyInput.value = "";
-    refreshApiKeyStatus();
+    refreshApiKeyPanel();
     toast("API 키를 삭제했습니다");
   });
 
