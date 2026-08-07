@@ -1014,9 +1014,28 @@
     return results;
   }
 
+  function buildReviewPromptText(sectionLabel, limit, text, studentName){
+    var lines = [];
+    lines.push("아래는 학교생활기록부 '" + sectionLabel + "' 항목에 작성한 문장이야. 나이스 기재요령 관점에서 문제가 없는지 점검해줘.");
+    lines.push("");
+    lines.push("[점검 기준]");
+    GUARDRAILS.forEach(function(g){ lines.push("- " + g); });
+    if(limit){ lines.push("- 공백 포함 " + limit + "자 이내"); }
+    lines.push("");
+    if(studentName && studentName.trim()){
+      lines.push("[학생 이름] " + studentName.trim() + " (문장 안에 이 이름이 그대로 반복되지 않았는지도 확인해줘)");
+      lines.push("");
+    }
+    lines.push("[점검할 문장]");
+    lines.push((text || "").trim() || "(작성된 내용 없음)");
+    lines.push("");
+    lines.push("위 기준별로 문제가 되는 부분이 있으면 어떤 기준에 어긋나는지와 이유를 구체적으로 지적하고, 가능하면 수정 제안 문장도 함께 제시해줘. 문제가 없다면 '문제없음'이라고만 답해줘.");
+    return lines.join("\n");
+  }
+
   var checkOpen = {};
 
-  function buildCheckPanel(key, getText, limit, studentName){
+  function buildCheckPanel(key, getText, limit, studentName, labelSource){
     var wrap = document.createElement("div");
     wrap.className = "bank";
 
@@ -1085,6 +1104,45 @@
     });
 
     body.appendChild(panel);
+
+    var divider = document.createElement("div");
+    divider.className = "helper-divider";
+    body.appendChild(divider);
+
+    var aiIntro = document.createElement("p");
+    aiIntro.className = "helper-note";
+    aiIntro.textContent = "규칙 기반 점검으로는 잡아내기 어려운 부분(문맥, 어색한 표현, 과장된 서술 등)은 AI에게 직접 점검을 맡길 수 있어요. 아래에서 점검 프롬프트를 생성해 AI 대화창에 붙여넣어 보세요.";
+    body.appendChild(aiIntro);
+
+    var aiGenBtn = document.createElement("button");
+    aiGenBtn.type = "button";
+    aiGenBtn.className = "btn btn-accent";
+    aiGenBtn.textContent = "AI 점검 프롬프트 생성 & 복사";
+    body.appendChild(aiGenBtn);
+
+    var aiPromptField = document.createElement("div");
+    aiPromptField.className = "helper-field";
+    aiPromptField.style.display = "none";
+    var aiPLabel = document.createElement("label");
+    aiPLabel.textContent = "생성된 점검 프롬프트 (자동 복사됨 · AI 대화창에 붙여넣으세요)";
+    var aiPArea = document.createElement("textarea");
+    aiPArea.className = "helper-textarea prompt-output";
+    aiPArea.readOnly = true;
+    aiPArea.rows = 6;
+    aiPromptField.appendChild(aiPLabel); aiPromptField.appendChild(aiPArea);
+    body.appendChild(aiPromptField);
+
+    aiGenBtn.addEventListener("click", function(){
+      var label = typeof labelSource === "function" ? labelSource() : (labelSource || "");
+      var text = buildReviewPromptText(label, limit, getText(), studentName);
+      aiPArea.value = text;
+      aiPromptField.style.display = "flex";
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(text).then(function(){ toast("점검 프롬프트를 클립보드에 복사했습니다"); }).catch(function(){ toast("점검 프롬프트를 생성했습니다 — 아래에서 직접 복사해 주세요"); });
+      } else {
+        toast("점검 프롬프트를 생성했습니다 — 아래에서 직접 복사해 주세요");
+      }
+    });
 
     head.addEventListener("click", function(){
       checkOpen[key] = !checkOpen[key];
@@ -1960,7 +2018,7 @@
       function(text){ ta.value = text; ta.dispatchEvent(new Event("input")); }
     ));
 
-    frag.appendChild(buildCheckPanel(sectionKey, function(){ return ta.value; }, limits[sectionKey], s.name));
+    frag.appendChild(buildCheckPanel(sectionKey, function(){ return ta.value; }, limits[sectionKey], s.name, SECTION_LABEL[sectionKey]));
 
     var tips = document.createElement("div");
     tips.className = "tips";
@@ -2035,7 +2093,7 @@
         renderTabBody,
         function(text){ ta.value = text; ta.dispatchEvent(new Event("input")); }
       ));
-      card.appendChild(buildCheckPanel("check-subject:" + subj.id, function(){ return ta.value; }, limits.subject, s.name));
+      card.appendChild(buildCheckPanel("check-subject:" + subj.id, function(){ return ta.value; }, limits.subject, s.name, function(){ return "교과 세부능력 및 특기사항 (과목: " + (nameInput.value.trim() || "미입력") + ")"; }));
       list.appendChild(card);
     });
 
