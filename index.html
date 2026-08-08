@@ -613,7 +613,7 @@
         <div class="roster-upload">
           <button type="button" class="btn" id="btnRosterUpload" style="width:100%; justify-content:center;">명단 파일로 추가</button>
           <input type="file" id="fileRosterUpload" accept=".csv,.txt,.xlsx" class="visually-hidden">
-          <p class="roster-upload-note">CSV 또는 엑셀(.xlsx) 파일 · 열 순서: 이름, 학년, 반, 번호 (헤더 행 있어도 자동 인식)</p>
+          <p class="roster-upload-note">CSV 또는 엑셀(.xlsx) 파일 · 열 순서: 이름, 학년, 반, 번호 (헤더 행 있어도 자동 인식) · 반 칸은 "1" "1반" 어느 형식이든 인식됩니다</p>
         </div>
       </div>
     </aside>
@@ -1638,6 +1638,11 @@
     return rows;
   }
 
+  function normalizeClassValue(v){
+    v = (v || "").toString().trim();
+    return v.replace(/\s*반\s*$/, "");
+  }
+
   function matchHeader(cell, names){
     var v = (cell || "").toString().trim().toLowerCase();
     return names.some(function(h){ return v === h.toLowerCase(); });
@@ -1665,7 +1670,7 @@
       list.push({
         name: name,
         grade: (row[idx.grade] || "").toString().trim(),
-        cls: (row[idx.cls] || "").toString().trim(),
+        cls: normalizeClassValue(row[idx.cls]),
         number: (row[idx.number] || "").toString().trim()
       });
     });
@@ -1912,7 +1917,7 @@
     var name = document.getElementById("newName").value.trim();
     if(!name) return;
     var grade = document.getElementById("newGrade").value.trim();
-    var cls = document.getElementById("newClass").value.trim();
+    var cls = normalizeClassValue(document.getElementById("newClass").value);
     var number = document.getElementById("newNumber").value.trim();
     var s = blankStudent(name, grade, cls, number);
     state.students.push(s);
