@@ -230,13 +230,27 @@
     font-size:11px;
     color:var(--ink-faint);
   }
+  .roster-filter-row{ display:flex; gap:6px; }
   .roster-search{
-    width:100%;
+    flex:1; min-width:0;
     border:1px solid var(--border);
     background:var(--paper);
     border-radius:7px;
     padding:6px 9px;
     font-size:12.5px;
+  }
+  .roster-class-filter{
+    flex:none; max-width:88px;
+    border:1px solid var(--border);
+    background:var(--paper);
+    border-radius:7px;
+    padding:6px 6px;
+    font-size:12.5px; color:var(--ink);
+  }
+  .roster-group-header{
+    padding:8px 8px 4px;
+    font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--brass);
   }
   .roster-list{
     list-style:none; margin:0; padding:6px;
@@ -578,7 +592,12 @@
           <span class="roster-title">학생 목록</span>
           <span class="roster-count" id="rosterCount">0명</span>
         </div>
-        <input type="search" class="roster-search" id="rosterSearch" placeholder="이름 검색">
+        <div class="roster-filter-row">
+          <input type="search" class="roster-search" id="rosterSearch" placeholder="이름 검색">
+          <select class="roster-class-filter" id="rosterClassFilter">
+            <option value="">전체 반</option>
+          </select>
+        </div>
       </div>
       <ul class="roster-list" id="rosterList"></ul>
       <div class="roster-add">
@@ -1759,26 +1778,83 @@
   var rosterList = document.getElementById("rosterList");
   var rosterCount = document.getElementById("rosterCount");
   var rosterSearch = document.getElementById("rosterSearch");
+  var rosterClassFilter = document.getElementById("rosterClassFilter");
 
   function initials(name){
     return (name || "?").trim().slice(-2) || "?";
   }
 
+  function classSortKey(cls){
+    var n = parseInt(cls, 10);
+    return isNaN(n) ? cls : n;
+  }
+
+  function refreshClassFilterOptions(){
+    var seen = {};
+    var classes = [];
+    state.students.forEach(function(s){
+      var c = (s.cls || "").trim();
+      if(c && !seen[c]){ seen[c] = true; classes.push(c); }
+    });
+    classes.sort(function(a, b){
+      var ka = classSortKey(a), kb = classSortKey(b);
+      if(typeof ka === "number" && typeof kb === "number") return ka - kb;
+      return String(ka).localeCompare(String(kb));
+    });
+    var prevValue = rosterClassFilter.value;
+    rosterClassFilter.innerHTML = "";
+    var allOpt = document.createElement("option");
+    allOpt.value = "";
+    allOpt.textContent = "전체 반";
+    rosterClassFilter.appendChild(allOpt);
+    classes.forEach(function(c){
+      var opt = document.createElement("option");
+      opt.value = c;
+      opt.textContent = c + "반";
+      rosterClassFilter.appendChild(opt);
+    });
+    rosterClassFilter.value = classes.indexOf(prevValue) !== -1 ? prevValue : "";
+  }
+
   function renderRoster(){
+    refreshClassFilterOptions();
     var q = (rosterSearch.value || "").trim();
+    var classFilter = rosterClassFilter.value;
     var list = state.students.filter(function(s){
-      return !q || s.name.indexOf(q) !== -1;
+      var matchesName = !q || s.name.indexOf(q) !== -1;
+      var matchesClass = !classFilter || (s.cls || "").trim() === classFilter;
+      return matchesName && matchesClass;
     });
     rosterCount.textContent = state.students.length + "명";
     rosterList.innerHTML = "";
     if(list.length === 0){
-      var li = document.createElement("li");
-      li.className = "roster-empty";
-      li.textContent = state.students.length === 0 ? "등록된 학생이 없습니다" : "검색 결과가 없습니다";
-      rosterList.appendChild(li);
+      var emptyLi = document.createElement("li");
+      emptyLi.className = "roster-empty";
+      emptyLi.textContent = state.students.length === 0 ? "등록된 학생이 없습니다" : "조건에 맞는 학생이 없습니다";
+      rosterList.appendChild(emptyLi);
       return;
     }
+    var showGroups = !classFilter;
+    if(showGroups){
+      list = list.slice().sort(function(a, b){
+        var ka = classSortKey((a.cls || "").trim() || "￿");
+        var kb = classSortKey((b.cls || "").trim() || "￿");
+        if(typeof ka === "number" && typeof kb === "number") return ka - kb;
+        return String(ka).localeCompare(String(kb));
+      });
+    }
+    var lastGroupKey = null;
     list.forEach(function(s){
+      if(showGroups){
+        var groupKey = (s.cls || "").trim() || "미배정";
+        if(groupKey !== lastGroupKey){
+          lastGroupKey = groupKey;
+          var header = document.createElement("li");
+          header.className = "roster-group-header";
+          header.textContent = groupKey === "미배정" ? "반 미배정" : groupKey + "반";
+          rosterList.appendChild(header);
+        }
+      }
       var li = document.createElement("li");
       li.className = "roster-item" + (s.id === state.currentId ? " active" : "");
       li.setAttribute("role","button");
@@ -1829,6 +1905,7 @@
   }
 
   rosterSearch.addEventListener("input", renderRoster);
+  rosterClassFilter.addEventListener("change", renderRoster);
 
   document.getElementById("addForm").addEventListener("submit", function(ev){
     ev.preventDefault();
